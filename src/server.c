@@ -76,8 +76,10 @@ int main(){
 			printf("Fail\n");
 			return 1;
 		}
-		if(nread == 0)
-			printf("Client ended connection. ");	
+		if(nread == 0){
+			printf("Client ended connection.\n");
+			continue;
+		}	
 		buffer[nread] = '\0';
 		printf("Recieved data [%s]\n",buffer);
 		

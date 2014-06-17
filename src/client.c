@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define max(X,Y) X>Y ? X : Y
+
 int main(){
 	printf("Client start\n");
 	int result = 0;
@@ -42,10 +44,30 @@ int main(){
 		return 1;
 	}
 	printf("Ok\n");
+
+	/*
+	printf("Creating a FDset with stdin and socket...");
+	fd_set set;
+	FD_ZERO(&set);
+	FD_SET(client_socket, &set);
+	FD_SET(0, &set); //(0 == stdin's file descriptor)
+	printf("Ok\n");
+
+	printf("Please input data to send: ");
+	select( max(client_socket,0),
+		&set,
+		NULL,
+		NULL,
+		NULL);
+	*/
 	
+	printf("Please input data to send: ");
+	char buf[256];
+	fgets(buf, sizeof(buf), stdin);
+	buf[strlen(buf)-1] = '\0'; //Remplace le \n final par un \0
+
 	printf("Sending data to server...");
-	const char* data = "Hello";
-	int sent = write(client_socket, data, strlen(data));
+	int sent = write(client_socket, buf, strlen(buf));
 	if(sent == -1){
 		printf("Fail\n");
 		return 1;
@@ -53,27 +75,17 @@ int main(){
 	printf("Ok\n");
 
 	printf("Awaiting response...");
-	char buffer[100];
-	int nread = read(client_socket, buffer, 99);
+	int nread = read(client_socket, buf, sizeof(buf));
 	if(nread == -1){
 		printf("Fail\n");
 		return 1;
 	}
-	if(nread == 0)
-		printf("Server ended connection. ");
-	buffer[nread] = '\0';
-	printf("Recieved data [%s]\n",buffer);
-	
-	
-	/*printf("Reading data on socket...");
-	char buffer[100];
-	int amountread = read(client_socket, buffer, 100);
-	buffer[amountread] = '\0';
-	if(amountread != 0){
-		printf("%s\n",buffer);
-	}else{
-		printf("Fail\n");
-	}*/
+	if(nread == 0){
+		printf("Server ended connection.\n");
+		return 1;
+	}
+	buf[nread] = '\0';
+	printf("Recieved data [%s]\n",buf);
 	
 	printf("Client end\n");
 	return 0;
