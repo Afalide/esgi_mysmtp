@@ -5,9 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <openssl/rand.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
 
 int main(){
 	printf("Client start\n");
@@ -67,6 +64,16 @@ int main(){
 	buffer[nread] = '\0';
 	printf("Recieved data [%s]\n",buffer);
 	
+	
+	/*printf("Reading data on socket...");
+	char buffer[100];
+	int amountread = read(client_socket, buffer, 100);
+	buffer[amountread] = '\0';
+	if(amountread != 0){
+		printf("%s\n",buffer);
+	}else{
+		printf("Fail\n");
+	}*/
 	
 	printf("Client end\n");
 	return 0;
