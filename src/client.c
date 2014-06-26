@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define max(X,Y) X>Y ? X : Y
+#define max(x,y) ((x)>(y)?(x):(y))
 
 int main(){
 	printf("Client start\n");
@@ -45,22 +45,95 @@ int main(){
 	}
 	printf("Ok\n");
 
+	//infinite loop, only exited by a CTRL+C (while true)
+	while(1){
+		//build file descriptor set
+		printf("Creating a FDset with stdin and socket...");
+		fd_set set;
+		FD_ZERO(&set);
+		FD_SET(STDIN_FILENO, &set);
+		FD_SET(client_socket, &set);
+		printf("Ok\n");
+
+		//listen call
+		int maxfdp1 = max(client_socket,STDIN_FILENO) +1;
+		result = select(maxfdp1, &set, NULL, NULL, NULL);
+
+		//listen returned: check where the event is
+		if(result == -1){
+			printf("Error, select() returned -1\n");
+			return 1;
+		}
+
+		//is it a socket event?
+		if(FD_ISSET(client_socket, &set)){
+			printf("Event found on socket\n");
+
+			//read socket data
+			printf("Reading server message...");
+			char buf[256];
+			int nread = read(client_socket, buf, sizeof(buf));
+			
+			//read failed?			
+			if(nread == -1){
+				printf("Fail (-1)\n");
+				return 1;
+			}
+
+			//server killed?
+			else if(nread == 0){
+				printf("Server ended connection.\n");
+				return 1;
+			}
+
+			//server wrote something?
+			else{
+				buf[nread] = '\0';
+				printf("Recieved data: [%s]\n",buf);
+			}
+		}
+
+		//is it an stdin event?
+		if(FD_ISSET(STDIN_FILENO, &set)){
+			printf("Event found on stdin\n");
+	
+			//read stdin
+			char buf[256];
+			fgets(buf, sizeof(buf), stdin);
+			buf[strlen(buf)-1] = '\0'; //replace the final '\n' with '\0'
+			
+			//send it to the server
+			int sent = write(client_socket, buf, strlen(buf));
+			if(sent == -1){
+				printf("Fail (-1)\n");
+				return 1;
+			}
+			printf("Ok\n");
+		}
+	}
 	/*
 	printf("Creating a FDset with stdin and socket...");
 	fd_set set;
 	FD_ZERO(&set);
+	FD_SET(STDIN_FILENO, &set); //(0 == stdin's file descriptor)
 	FD_SET(client_socket, &set);
-	FD_SET(0, &set); //(0 == stdin's file descriptor)
 	printf("Ok\n");
 
-	printf("Please input data to send: ");
-	select( max(client_socket,0),
+	int maxfdp1 = (max(client_socket,STDIN_FILENO)) +1;
+	printf("fd stdin = %d \nfd sock  = %d\nmaxfdp1  = %d\n",STDIN_FILENO,client_socket,maxfdp1);
+
+	printf("Please input data to send: \n");
+	result = select( 
+                maxfdp1,
 		&set,
 		NULL,
 		NULL,
 		NULL);
+
+	printf("Select function ended with result %d\n",result);
 	*/
 	
+	/*
 	printf("Please input data to send: ");
 	char buf[256];
 	fgets(buf, sizeof(buf), stdin);
@@ -86,7 +159,11 @@ int main(){
 	}
 	buf[nread] = '\0';
 	printf("Recieved data [%s]\n",buf);
-	
+	*/	
+
 	printf("Client end\n");
 	return 0;
 }
+
+
+
