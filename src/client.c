@@ -6,17 +6,19 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <unistd.h>
 
 int msCreateSocket(int* fdSocket);
-int msConnect(const char* url, int port, int fdSocket);
+int msConnect(const char* url, int port, int fdSocket, int encrypted);
 int msSendString(const char* str, int fdSocket);
+int msReadString(char** str, int fdSocket);
 
 int msCreateSocket(int* fdSocket)
 {
     printf("Allocating socket...");
     if(NULL == fdSocket)
     {
-        printf("Fail (socket* is a nullptr)\n");
+        printf("Fail (nullptr)\n");
         return 0;
     }
     int sock = socket(AF_INET, SOCK_STREAM, 0);
@@ -31,20 +33,20 @@ int msCreateSocket(int* fdSocket)
     return 1;
 }
 
-int msConnect(const char* url, int port, int fdSocket)
+int msConnect(const char* url, int port, int fdSocket, int encrypted)
 {
     printf("Resolving %s...",url);
     struct hostent* host;
     host = gethostbyname(url);
     if(NULL == host)
     {
-        printf("Fail\n");
+        printf("Fail (gethostbyname())\n");
         return 0;
     }
     struct in_addr**    solvedAddresses = (struct in_addr**) host->h_addr_list;
     struct in_addr*     solvedFirstAddress = solvedAddresses[0];
     char*               ipPres = inet_ntoa(*solvedFirstAddress);
-    printf("Ok, solved to %s\n",ipPres);
+    printf("Ok (solved to %s)\n",ipPres);
 
     printf("Connecting to %s:%d...",ipPres,port);
     fflush(stdout);
@@ -58,11 +60,56 @@ int msConnect(const char* url, int port, int fdSocket)
 
         if(connect(fdSocket, (struct sockaddr*)&server_sockaddr, server_sockaddr_size) != 0)
         {
-            printf("Fail\n");
+            printf("Fail (connect())\n");
             return 0;
         }
     }
     printf("Ok\n");
+    return 1;
+}
+
+int msSendString(const char* str, int fdSocket)
+{
+    printf("Sending data [%s]...",str);
+    fflush(stdout);
+
+    int sent = write(fdSocket, str, strlen(str));
+    if(sent == -1){
+        printf("Fail (write())\n");
+        return 0;
+    }
+    printf("Ok\n");
+    return 1;
+}
+
+int msReadString(char** str, int fdSocket)
+{
+    //read socket data
+    printf("Reading server message...");
+    fflush(stdout);
+
+    char* buffer = malloc(1024);
+    int nread = read(fdSocket, buffer, 1024);
+
+    //read failed?
+    if(nread == -1){
+        printf("Fail (read())\n");
+        return 0;
+    }
+
+    //server killed?
+    else if(nread == 0){
+        printf("Fail (server ended connection)\n");
+        return 0;
+    }
+
+    //server wrote something?
+    else{
+        buffer[nread] = '\0';
+        printf("Ok (recieved [%s])\n",buffer);
+    }
+
+    *str = buffer;
     return 1;
 }
 
@@ -78,14 +125,27 @@ int main()
         return 1;
     }
 
-    if(!msConnect(url,port,serverSocket))
+    if(!msConnect(url,port,serverSocket,1))
     {
         printf("Failed to connect\n");
         return 1;
     }
 
+    if(!msSendString("EHLO",serverSocket))
+    {
+        printf("Send failed\n");
+        return 1;
+    }
 
+    char* str = NULL;
+    if(!msReadString(&str, serverSocket))
+    {
+        printf("Nothing read\n");
+        return 1;
+    }
+    free(str);
 
+    printf("Response from server: [%s]\n",str);
     return 0;
 }
 
