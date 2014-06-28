@@ -74,11 +74,17 @@ int msSendString(const char* str, int fdSocket)
     fflush(stdout);
 
     int sent = write(fdSocket, str, strlen(str));
-    if(sent == -1){
+
+    if(sent == -1)
+    {
         printf("Fail (write())\n");
+        return 0;
+    }else if (sent == 0){
+        printf("Fail (0 bytes sent)\n");
         return 0;
     }
     printf("Ok\n");
+
     return 1;
 }
 
@@ -97,7 +103,7 @@ int msReadString(char** str, int fdSocket)
         return 0;
     }
 
-    //server killed?
+    //server aborted?
     else if(nread == 0){
         printf("Fail (server ended connection)\n");
         return 0;
@@ -105,7 +111,7 @@ int msReadString(char** str, int fdSocket)
 
     //server wrote something?
     else{
-        buffer[nread] = '\0';
+        //buffer[nread] = '\0';
         printf("Ok (recieved [%s])\n",buffer);
     }
 
@@ -117,35 +123,60 @@ int main()
 {
     const char* url = "smtp.gmail.com";
     int port = 587;
+
     int serverSocket;
+    char* buf = NULL;
 
-    if(!msCreateSocket(&serverSocket))
-    {
-        printf("Failed to create socket\n");
-        return 1;
-    }
+    msCreateSocket(&serverSocket);
+    msConnect(url,port,serverSocket,1);
+    msReadString(&buf, serverSocket);
+    msSendString("EHLO\n", serverSocket);
+    msReadString(&buf, serverSocket);
+    msSendString("MAIL FROM <toast@toast.com>\n", serverSocket);
+    msReadString(&buf, serverSocket);
+//    msSendString("STARTTLS\n", serverSocket);
+//    msReadString(&buf, serverSocket);
+//    msSendString("MAIL FROM abc.com\n", serverSocket);
+//    msReadString(&buf, serverSocket);
 
-    if(!msConnect(url,port,serverSocket,1))
-    {
-        printf("Failed to connect\n");
-        return 1;
-    }
+//    if(!msCreateSocket(&serverSocket))
+//    {
+//        printf("Failed to create socket\n");
+//        return 1;
+//    }
+//
+//    if(!msConnect(url,port,serverSocket,1))
+//    {
+//        printf("Failed to connect\n");
+//        return 1;
+//    }
+//
+//    if(!msSendString("EHLO",serverSocket))
+//    {
+//        printf("Send failed\n");
+//        return 1;
+//    }
+//
+//    char* str = NULL;
+//    if(!msReadString(&str, serverSocket))
+//    {
+//        printf("Nothing read\n");
+//        return 1;
+//    }
+//    free(str);
+//
+//    if(!msSendString("MAIL FROM <toast@toast.com>",serverSocket))
+//    {
+//        printf("Send failed\n");
+//        return 1;
+//    }
+//
+//    if(!msReadString(&str, serverSocket))
+//    {
+//        printf("Nothing read\n");
+//        return 1;
+//    }
 
-    if(!msSendString("EHLO",serverSocket))
-    {
-        printf("Send failed\n");
-        return 1;
-    }
-
-    char* str = NULL;
-    if(!msReadString(&str, serverSocket))
-    {
-        printf("Nothing read\n");
-        return 1;
-    }
-    free(str);
-
-    printf("Response from server: [%s]\n",str);
     return 0;
 }
 
