@@ -8,10 +8,18 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <openssl/bio.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
+
 int msCreateSocket(int* fdSocket);
 int msConnect(const char* url, int port, int fdSocket, int encrypted);
 int msSendString(const char* str, int fdSocket);
 int msReadString(char** str, int fdSocket);
+void msPrintSSLError(SSL* sslConnection, int sslReturnCode);
 
 int msCreateSocket(int* fdSocket)
 {
@@ -35,6 +43,7 @@ int msCreateSocket(int* fdSocket)
 
 int msConnect(const char* url, int port, int fdSocket, int encrypted)
 {
+    //Solve the url, we need an IP
     printf("Resolving %s...",url);
     struct hostent* host;
     host = gethostbyname(url);
@@ -43,28 +52,118 @@ int msConnect(const char* url, int port, int fdSocket, int encrypted)
         printf("Fail (gethostbyname())\n");
         return 0;
     }
+
+    //Many IP's may be found. We only take the first.
     struct in_addr**    solvedAddresses = (struct in_addr**) host->h_addr_list;
     struct in_addr*     solvedFirstAddress = solvedAddresses[0];
+    struct sockaddr_in  server_sockaddr;
+    socklen_t            server_sockaddr_size = sizeof(server_sockaddr);
     char*               ipPres = inet_ntoa(*solvedFirstAddress);
     printf("Ok (solved to %s)\n",ipPres);
 
+    //Fill the server address structure with useful infos
+    server_sockaddr.sin_family = AF_INET;
+    server_sockaddr.sin_port   = htons((unsigned short) port);
+    server_sockaddr.sin_addr = *solvedFirstAddress;
+
+
+    //Connect to the server
     printf("Connecting to %s:%d...",ipPres,port);
     fflush(stdout);
+    if(connect(fdSocket, (struct sockaddr*)&server_sockaddr, server_sockaddr_size) != 0)
     {
-        struct sockaddr_in      server_sockaddr;
-        socklen_t                server_sockaddr_size = sizeof(server_sockaddr);
-
-        server_sockaddr.sin_family = AF_INET;
-        server_sockaddr.sin_port   = htons((unsigned short) port);
-        server_sockaddr.sin_addr = *solvedFirstAddress;
-
-        if(connect(fdSocket, (struct sockaddr*)&server_sockaddr, server_sockaddr_size) != 0)
-        {
-            printf("Fail (connect())\n");
-            return 0;
-        }
+        printf("Fail\n");
+        return 0;
     }
     printf("Ok\n");
+
+    if(encrypted == 1)
+    {
+        //Here we use openSSL to encrypt the connection
+        printf("Loading SSL...");
+        fflush(stdout);
+
+        //SSL Variables
+        const SSL_METHOD*  sslMethod;
+        SSL_CTX*            sslContext;
+        SSL*                sslConnection;
+
+        //Load the SSL library
+        OpenSSL_add_all_algorithms();
+        ERR_load_BIO_strings();
+        ERR_load_crypto_strings();
+        SSL_load_error_strings();
+
+        if(SSL_library_init() < 0)
+        {
+            printf("Failed\n");
+            return 0;
+        }
+        printf("Ok\n");
+
+        //We will use TLS
+        printf("Declaring TLSv1...");
+        //sslMethod = SSLv23_client_method();
+        sslMethod = TLSv1_client_method();
+        if(NULL == sslMethod)
+        {
+            printf("Fail\n");
+            return 0;
+        }
+        printf("Ok\n");
+
+        //We create an SSL context (it will be associated to the socket)
+        printf("Creating SSL context...");
+        sslContext = SSL_CTX_new(sslMethod);
+        if(NULL == sslContext)
+        {
+            printf("Fail\n");
+            return 0;
+        }
+        printf("Ok\n");
+
+        //This disables SSL2 for the context to force SSL3 negotiation
+        SSL_CTX_set_options(sslContext, SSL_OP_NO_SSLv2);
+
+        //We create an SSL structure
+        printf("Creating connection structure...");
+        sslConnection = SSL_new(sslContext);
+        if(NULL == sslConnection)
+        {
+            printf("Fail\n");
+            return 0;
+        }
+        printf("Ok\n");
+
+        //This associates the SSL context with the socket
+        SSL_set_fd(sslConnection, fdSocket);
+
+        //////////////////////////////////////test
+        //Pump the first line
+        char* buf = NULL;
+        msReadString(&buf, fdSocket);
+        //Send EHLO
+        msSendString("EHLO\n",fdSocket);
+        //Pump result
+        msReadString(&buf, fdSocket);
+        //Send STARTTLS
+        msSendString("STARTTLS\n",fdSocket);
+        msReadString(&buf, fdSocket);
+        //////////////////////////////////////
+
+        //Now we can connect with SSL
+        printf("Establishing SSL session...");
+        fflush(stdout);
+        int sslConnectResult = SSL_connect(sslConnection);
+        if(sslConnectResult != 1)
+        {
+            printf("Fail\n");
+            msPrintSSLError(sslConnection, sslConnectResult);
+            return 0;
+        }
+        printf("Ok\n");
+    }
+
     return 1;
 }
 
@@ -119,21 +218,59 @@ int msReadString(char** str, int fdSocket)
     return 1;
 }
 
+void msPrintSSLError(SSL* sslConnection, int sslReturnCode)
+{
+    switch(SSL_get_error(sslConnection, sslReturnCode))
+    {
+        case SSL_ERROR_NONE:
+        printf("SSL_ERROR_NONE\n");
+        break;
+        case SSL_ERROR_ZERO_RETURN:
+        printf("SSL_ERROR_ZERO_RETURN\n");
+        break;
+        case SSL_ERROR_WANT_READ:
+        printf("SSL_ERROR_WANT_READ\n");
+        break;
+        case SSL_ERROR_WANT_WRITE:
+        printf("SSL_ERROR_WANT_WRITE\n");
+        break;
+        case SSL_ERROR_WANT_CONNECT:
+        printf("SSL_ERROR_WANT_CONNECT\n");
+        break;
+        case SSL_ERROR_WANT_ACCEPT:
+        printf("SSL_ERROR_WANT_ACCEPT\n");
+        break;
+        case SSL_ERROR_WANT_X509_LOOKUP:
+        printf("SSL_ERROR_WANT_X509_LOOKUP\n");
+        break;
+        case SSL_ERROR_SYSCALL:
+        printf("SSL_ERROR_SYSCALL\n");
+        break;
+        case SSL_ERROR_SSL:
+        printf("SSL_ERROR_SSL\n");
+        break;
+    }
+}
+
 int main()
 {
     const char* url = "smtp.gmail.com";
     int port = 587;
 
+//    const char* url = "www.google.com";
+//    int port = 443;
+
+
     int serverSocket;
-    char* buf = NULL;
+//    char* buf = NULL;
 
     msCreateSocket(&serverSocket);
     msConnect(url,port,serverSocket,1);
-    msReadString(&buf, serverSocket);
-    msSendString("EHLO\n", serverSocket);
-    msReadString(&buf, serverSocket);
-    msSendString("MAIL FROM <toast@toast.com>\n", serverSocket);
-    msReadString(&buf, serverSocket);
+//    msReadString(&buf, serverSocket);
+//    msSendString("EHLO\n", serverSocket);
+//    msReadString(&buf, serverSocket);
+//    msSendString("MAIL FROM <toast@toast.com>\n", serverSocket);
+//    msReadString(&buf, serverSocket);
 //    msSendString("STARTTLS\n", serverSocket);
 //    msReadString(&buf, serverSocket);
 //    msSendString("MAIL FROM abc.com\n", serverSocket);
