@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+
 int main(){
 	printf("Server start\n");
 	int result = 0;
@@ -100,3 +101,4 @@ int main(){
 	printf("Server end\n");
 	return 0;
 }
+
