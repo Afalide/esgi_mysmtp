@@ -10,13 +10,13 @@
 
 #include <openssl/bio.h>
 #include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <openssl/pem.h>
-#include <openssl/x509.h>
-#include <openssl/x509_vfy.h>
+//#include <openssl/err.h>
+//#include <openssl/pem.h>
 
 //////////////////////////////////////////
 //The MySmtp Connection structure
+//////////////////////////////////////////
+
 typedef struct mscn_s
 {
     //Common data
@@ -33,14 +33,20 @@ typedef struct mscn_s
 
 //////////////////////////////////////////
 //MySmtp functions
+//////////////////////////////////////////
+
 mscn*           msConnect(const char* host, int port, int useSsl);
 void            msSendString(const char* str, mscn* cn);
+void            msSendStringNoCrlf(const char* str, mscn* cn);
+char*           msEncodeBase64(const char* str);
 char*           msReadString(mscn* cn);
 void            msPrintSSLError(SSL* sslConnection, int sslReturnCode);
+void            msStrReplace(char* source, char target, char replacement);
 
 //////////////////////////////////////////
 //msConnect
 //Creates an mscn structure, which is used by the ms* functions.
+//////////////////////////////////////////
 
 mscn*
 msConnect(const char* host, int port, int useSsl)
@@ -109,9 +115,9 @@ msConnect(const char* host, int port, int useSsl)
 
         //Load the SSL library
         OpenSSL_add_all_algorithms();
-        ERR_load_BIO_strings();
-        ERR_load_crypto_strings();
-        SSL_load_error_strings();
+//        ERR_load_BIO_strings();
+//        ERR_load_crypto_strings();
+//        SSL_load_error_strings();
 
         if(SSL_library_init() < 0)
         {
@@ -157,17 +163,27 @@ msConnect(const char* host, int port, int useSsl)
         //This associates the SSL context with the socket
         SSL_set_fd(sslConnection, sock);
 
-        //Before using TLS we must issue a STARTTLS command to the smtp server
-//        msReadString(ret);
-//        //Send EHLO
-//        msSendString("EHLO\n",ret);
-//        //Flush the result
-//        msReadString(ret);
-//        //Send STARTTLS
-//        msSendString("STARTTLS\n",ret);
-//        msReadString(ret);
+        //Fill the structure we will return
+        ret->sslConnection = sslConnection;
+        ret->sslContext = sslContext;
+        ret->sslMethod = sslMethod;
+        ret->usesSsl = 0; //This is to enforce a no-ssl write/read for
+                          //the ehlo / starttls commands
+                          //we will set it back to 1 later
 
-        //Now we can connect with SSL
+        //Before using TLS we must issue a STARTTLS command to the smtp server
+        //First, flush the welcome message
+        free(msReadString(ret));
+        //Send EHLO
+        msSendString("ehlo",ret);
+        //Flush again the response
+        free(msReadString(ret));
+        //Send STARTTLS
+        msSendString("starttls",ret);
+        //Flush again the response
+        free(msReadString(ret));
+
+        //Now we can connect with SSL (this makes a "SSL handshake")
         printf("Establishing SSL session...");
         fflush(stdout);
         int sslConnectResult = SSL_connect(sslConnection);
@@ -181,9 +197,7 @@ msConnect(const char* host, int port, int useSsl)
 
         //From now, everything that is sent and read trough the socket
         //is encrypted (msReadString() and msSendString() will act differently)
-        ret->sslConnection = sslConnection;
-        ret->sslContext = sslContext;
-        ret->sslMethod = sslMethod;
+        ret->usesSsl = 1; //This modifies the behavior of the read/write functions
     }
 
     return ret;
@@ -192,14 +206,53 @@ msConnect(const char* host, int port, int useSsl)
 //////////////////////////////////////////
 //msSendString
 //Sends a single string to an host
+//////////////////////////////////////////
 
 void
 msSendString(const char* str, mscn* cn)
 {
+    int sent = -1;
+    int strLen = strlen(str);
+    char* strWithCrlf = (char*) malloc(strLen + 3);
+
+    //We append a CRLF to the string, this is to ensure
+    //that the smtp server will recieve correct separated commands
+    strcpy(strWithCrlf, str);
+    strcat(strWithCrlf, "\r\n");
+
     printf("Sending data [%s]...",str);
     fflush(stdout);
 
+    //If we use SSL, then write() must be done by the SSL library
+    if(cn->usesSsl == 1)
+    {
+        sent = SSL_write(cn->sslConnection, strWithCrlf, strlen(strWithCrlf));
+    }
+        else
+    {
+        sent = write(cn->socket, strWithCrlf, strlen(strWithCrlf));
+    }
+
+    if(sent == -1)
+    {
+        printf("Fail (write())\n");
+        return;
+    }
+        else if (sent == 0)
+    {
+        printf("Fail (0 bytes sent)\n");
+        return;
+    }
+    printf("Ok\n");
+}
+
+void
+msSendStringNoCrlf(const char* str, mscn* cn)
+{
     int sent = -1;
+
+    printf("Sending data [%s] without CRLF...",str);
+    fflush(stdout);
 
     //If we use SSL, then write() must be done by the SSL library
     if(cn->usesSsl == 1)
@@ -225,8 +278,49 @@ msSendString(const char* str, mscn* cn)
 }
 
 //////////////////////////////////////////
+//msEncodeBase64
+//Encodes the specified string and returns it's Base64 version
+//////////////////////////////////////////
+
+char*
+msEncodeBase64(const char* str)
+{
+    BIO* base64Bio;
+    BIO* memoryBio;
+
+    //Create a Base64 BIO (BIOs are filters that transforms streams
+    //they can also write and read to file descriptors)
+    base64Bio = BIO_new(BIO_f_base64());
+
+    //Create a memory BIO (it will write to a buffer (a char array),
+    //rather than stdout or a file)
+    memoryBio = BIO_new(BIO_s_mem());
+
+    //Add the base64 filter to the memory BIO.
+    memoryBio = BIO_push(base64Bio, memoryBio);
+
+    //Write the string to the mem BIO. It will be encoded to Base64
+    BIO_write(base64Bio, str, strlen(str));
+    if(BIO_flush(base64Bio) != 1)
+        return NULL;
+
+    //Get the result string. It is located in the buffer of the base64 BIO
+    BUF_MEM* bioBuffer;
+    BIO_get_mem_ptr(base64Bio, &bioBuffer);
+    char *result = (char *)malloc(bioBuffer->length+1);
+    strcpy(result, bioBuffer->data);
+    result[bioBuffer->length] = '\0';
+
+    //Free the Base64 BIo and the associated memory BIO
+    BIO_free_all(base64Bio);
+
+    return result;
+}
+
+//////////////////////////////////////////
 //msReadString
 //Reads any available data in the connection structure
+//////////////////////////////////////////
 
 char*
 msReadString(mscn* cn)
@@ -262,7 +356,10 @@ msReadString(mscn* cn)
 
     //server wrote something?
     else{
-        //buffer[nread] = '\0';
+        if(buffer[nread-2] == '\r');
+            buffer[nread-2] = '\0';
+        if( buffer[nread-1] == '\n')
+            buffer[nread-1] = '\0';
         printf("Ok (recieved [%s])\n",buffer);
     }
 
@@ -273,8 +370,10 @@ msReadString(mscn* cn)
 //msPrintSSLError
 //Shows the equivalent string error when an SSL*
 //function fails.
+//////////////////////////////////////////
 
-void msPrintSSLError(SSL* sslConnection, int sslReturnCode)
+void
+msPrintSSLError(SSL* sslConnection, int sslReturnCode)
 {
     switch(SSL_get_error(sslConnection, sslReturnCode))
     {
@@ -309,15 +408,56 @@ void msPrintSSLError(SSL* sslConnection, int sslReturnCode)
 }
 
 //////////////////////////////////////////
+//msStrReplace
+//Replaces characters by other in the given string
+//////////////////////////////////////////
+
+void
+msStrReplace(char* strSource, char target, char replacement)
+{
+    int i;
+    for(i=0; i<strlen(strSource); i++)
+    {
+        if(strSource[i] == target) strSource[i] = replacement;
+    }
+}
+
+//////////////////////////////////////////
 
 int main(int argc, char** argv)
 {
-    mscn* cn = msConnect("smtp.gmail.com",465,1);
-    msReadString(cn);
-    msSendString("ehlo\n", cn);
-    msReadString(cn);
-    msSendString("auth login\n", cn);
-    msReadString(cn);
+//    mscn* cn = msConnect("smtp.gmail.com",587,1);
+    mscn* cn = msConnect("smtp.live.com",587,1);
+    msSendString("ehlo", cn);
+    free(msReadString(cn));
+
+    msSendString("auth login", cn);
+    free(msReadString(cn));
+
+    msSendString(msEncodeBase64(argv[1]), cn);
+    free(msReadString(cn));
+
+    msSendString(msEncodeBase64(argv[2]), cn);
+    free(msReadString(cn));
+
+//while(1)
+//{
+//    char buffer[1024];
+//    fgets(buffer, 1024, stdin);
+//    int i = strlen(buffer)-1;
+//    if( buffer[i] == '\n')
+//        buffer[i] = '\0';
+//    msSendString(buffer,cn);
+//    free(msReadString(cn));
+//}
+
+
+//    const char* source = "afalide@hotmail.fr\n";
+//    char* encoded = NULL;
+//    printf("Encoding string: [%s]\n",source);
+//    encoded = msEncodeBase64(source);
+//    printf("Result is:       [%s]\n",encoded);
+
     return 0;
 }
 
@@ -627,10 +767,6 @@ int main()
     return 0;
 }
 */
-
-
-
-
 
 /*
 #include <sys/types.h>
