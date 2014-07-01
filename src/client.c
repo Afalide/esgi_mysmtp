@@ -213,7 +213,7 @@ msSendString(const char* str, mscn* cn)
 {
     int sent = -1;
     int strLen = strlen(str);
-    char* strWithCrlf = (char*) malloc(strLen + 3);
+    char* strWithCrlf = (char*) malloc(strLen + 4);
 
     //We append a CRLF to the string, this is to ensure
     //that the smtp server will recieve correct separated commands
@@ -307,9 +307,15 @@ msEncodeBase64(const char* str)
     //Get the result string. It is located in the buffer of the base64 BIO
     BUF_MEM* bioBuffer;
     BIO_get_mem_ptr(base64Bio, &bioBuffer);
-    char *result = (char *)malloc(bioBuffer->length+1);
+    int bufferLen = bioBuffer->length;
+    char *result = (char *)malloc(bufferLen);
+
     strcpy(result, bioBuffer->data);
-    result[bioBuffer->length] = '\0';
+    /*if( result[bufferLen-2] == '\r');
+        result[bufferLen-2] = '\0';
+    if( result[bufferLen-1] == '\n')
+        result[bufferLen-1] = '\0';*/
+    result[bufferLen-1] = '\0';
 
     //Free the Base64 BIo and the associated memory BIO
     BIO_free_all(base64Bio);
@@ -356,7 +362,7 @@ msReadString(mscn* cn)
 
     //server wrote something?
     else{
-        if(buffer[nread-2] == '\r');
+        if( buffer[nread-2] == '\r');
             buffer[nread-2] = '\0';
         if( buffer[nread-1] == '\n')
             buffer[nread-1] = '\0';
@@ -452,11 +458,11 @@ int main(int argc, char** argv)
 //}
 
 
-//    const char* source = "afalide@hotmail.fr\n";
-//    char* encoded = NULL;
-//    printf("Encoding string: [%s]\n",source);
-//    encoded = msEncodeBase64(source);
-//    printf("Result is:       [%s]\n",encoded);
+    const char* source = "romain.notari@gmail.com";
+    char* encoded = NULL;
+    printf("Encoding string: [%s]\n",source);
+    encoded = msEncodeBase64(source);
+    printf("Result is:       [%s]\n",encoded);
 
     return 0;
 }
