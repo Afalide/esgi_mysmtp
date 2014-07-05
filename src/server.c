@@ -1,3 +1,130 @@
+
+#include "mysmtp.h"
+
+int main(int argc, char** argv)
+{
+	int					result;
+	int					maxConnections = 10;
+	int					serverSocket;
+	int					serverPort;
+	const char*			serverIP = "127.0.0.1";
+	struct sockaddr_in 	serverSockaddr;
+	socklen_t 			serverSockaddrSize;
+
+	//Scan the we will listen to
+	if(argc < 2)
+	{
+		printf("Wrong number of arguments\n");
+		return 1;
+	}
+
+
+	//Get the port
+	serverPort = (int) strtol(argv[1],NULL,10);
+    if(0 == serverPort)
+    {
+        printf("Port value (%s) is wrong\n",argv[1]);
+        return 1;
+    }
+
+
+	//Create a socket
+	mslog("Creating socket...");
+	serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+	if(-1 == serverSocket){
+		mslog("Fail\n");
+		return 1;
+	}
+	mslog("Ok\n");
+
+
+	//Fill the structure with the port and a numeric version of the IP
+	mslog("Creating server IP infos...");
+	serverSockaddr.sin_family = AF_INET;
+	serverSockaddr.sin_port = htons(serverPort);
+	result = inet_pton(AF_INET, serverIP, &serverSockaddr.sin_addr);
+	if(result <= 0){
+		mslog("Fail of inet_pton\n");
+		return 1;
+	}
+	mslog("Ok\n");
+
+
+	//Now we bind the server address to the socket
+	mslog("Binding server's IP to socket...");
+	serverSockaddrSize = sizeof(serverSockaddr);
+	result = bind(serverSocket,(struct sockaddr*) &serverSockaddr, serverSockaddrSize);
+	if(result != 0){
+		mslog("Fail\n");
+		return 1;
+	}
+	mslog("Ok\n");
+
+
+	//We transform the socket in a passive socket
+	mslog("Putting socket on listen mode...");
+	result = listen(serverSocket, maxConnections);
+	if(result != 0){
+		mslog("Fail\n");
+		return 1;
+	}
+	mslog("Ok\n");
+
+
+	//Declare that we ignore child's signals
+	//This is needed beaceaus we will fork the server
+	//for each client, and we do not want zombies
+	//(we have not enough shotgun shells)
+	signal(SIGCHLD,SIG_IGN);
+
+
+	//Now we can accept connections.
+	//When a client connects, we fork this server.
+	//The parent will kepp accepting clients, and the
+	//child will handle the mail transfer with the
+	//client
+	printf("Server setup done. Starting connections wait loop\n");
+	struct sockaddr_in 	clientSockaddr;
+	socklen_t 			clientSockaddrSize = sizeof(clientSockaddr);
+	int 				clientSocket = 0;
+	int 				forkPid;
+	mscn* 				cnClient = NULL;
+
+
+	while((clientSocket = accept(serverSocket
+	                             ,(struct sockaddr*)&clientSockaddr
+								 , &clientSockaddrSize)))
+	{
+		forkPid = fork();
+		if(forkPid != 0)
+		{
+			//We are the parent server. We make a new loop to
+			//accept new clients
+			mslog("Server(P) created child %d\n",forkPid);
+			continue;
+		}else{
+			//We are the child server. We are now connected to a client.
+			mslog("Server(C) is now connected with a client\n");
+			break;
+		}
+	}
+
+
+	//This part is only accessed by forked children (parent is stuck
+	//in the loop)
+	printf("Server socket is %d\n",serverSocket);
+	printf("Client socket is %d\n",clientSocket);
+
+	cnClient = msCatch(clientSocket, &clientSockaddr);
+	mslog("Server(C) catched connection: %p\n",cnClient);
+
+	msSendString("Hey you!",cnClient);
+	//int sent = write(cnClient->socket, "hey you", strlen("hey you"));
+
+	return 0;
+}
+
+/*
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -5,6 +132,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 
 int main(){
 	printf("Server start\n");
@@ -100,3 +228,4 @@ int main(){
 	printf("Server end\n");
 	return 0;
 }
+*/
