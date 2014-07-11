@@ -272,9 +272,55 @@ int main(int argc, char** argv)
 				//Check if the last end dot is sent (means end of DATA stream)
 				if(msEndsWith(concatData,"\r\n.\r\n"))
 				{
-					//Send mail here
-					mslog("Will send Mail containing [%s]\n",clientCn->cmd_data);
+					mslog("Will send Mail containing [%s][%s][%s]\n",clientCn->cmd_mailfrom
+					                                                ,clientCn->cmd_rcptto
+					                                                ,clientCn->cmd_data);
 					msSendString("250 Ok, mail queued for sending",clientCn);
+
+					//Send mail here
+					const char*		cmdMailFrom = "MAIL FROM:";
+					const char*		cmdRcptTo = "RCPT TO:";
+					char* 			cmdMailFromParam = (char*)malloc(strlen(cmdMailFrom)+strlen(clientCn->cmd_mailfrom)+1);
+					char* 			cmdRcptToParam =   (char*)malloc(strlen(cmdRcptTo)  +strlen(clientCn->cmd_rcptto)+1);
+					mscn* gmailCn = msConnect("smtp.gmail.com",587,1);
+
+					//Send EHLO
+					msSendString("EHLO mysmtp.esgi",gmailCn);
+					free(msReadString(gmailCn));
+
+					//Authenticate
+					msSendString("AUTH LOGIN",gmailCn);
+					free(msReadString(gmailCn));
+					msSendString(msEncodeBase64("mysmtp.esgi@gmail.com"),gmailCn);
+					free(msReadString(gmailCn));
+					msSendString(msEncodeBase64("Esg1 Smtp"),gmailCn);
+					free(msReadString(gmailCn));
+
+					//Send MAIL FROM
+					strcpy(cmdMailFromParam,cmdMailFrom);
+					strcat(cmdMailFromParam,clientCn->cmd_mailfrom);
+					cmdMailFromParam[strlen(cmdMailFromParam)] = '\0';
+					msSendStringNoCrlf(cmdMailFromParam,gmailCn);
+					//msSendString("MAIL FROM:<plop@toast.com>",gmailCn);
+					free(msReadString(gmailCn));
+					free(cmdMailFromParam);
+
+					//Send RCPT TO
+					strcpy(cmdRcptToParam,cmdRcptTo);
+					strcat(cmdRcptToParam,clientCn->cmd_rcptto);
+					cmdRcptToParam[strlen(cmdRcptToParam)] = '\0';
+					msSendStringNoCrlf(cmdRcptToParam,gmailCn);
+					//msSendString("RCPT TO:<romain.notari@gmail.com>",gmailCn);
+					free(msReadString(gmailCn));
+					free(cmdRcptToParam);
+
+					//Send DATA
+					msSendString("DATA",gmailCn);
+					free(msReadString(gmailCn));
+					msSendString(clientCn->cmd_data,gmailCn);
+					//msSendString("Message contents\n\r\n.\r\n",gmailCn);
+					free(msReadString(gmailCn));
+
 					break;
 				}
 				continue;
@@ -294,6 +340,7 @@ int main(int argc, char** argv)
 		}
 	}
 
+	close(clientSocket);
 	mslog("Server(C) terminated!\n");
 
 	return 0;
