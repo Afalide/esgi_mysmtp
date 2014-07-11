@@ -64,6 +64,7 @@ msConnect(const char* host, int port, int useSsl)
     ret->sslContext = NULL;
     ret->sslMethod = NULL;
     ret->cmd_data = NULL;
+    ret->cmd_data_isComposing = 0;
     ret->cmd_ehlo = NULL;
     ret->cmd_mailfrom = NULL;
     ret->cmd_rcptto = NULL;
@@ -138,11 +139,11 @@ msConnect(const char* host, int port, int useSsl)
         //First, flush the welcome message
         free(msReadString(ret));
         //Send EHLO
-        msSendString("ehlo",ret);
+        msSendString("EHLO",ret);
         //Flush again the response
         free(msReadString(ret));
         //Send STARTTLS
-        msSendString("starttls",ret);
+        msSendString("STARTTLS",ret);
         //Flush again the response
         free(msReadString(ret));
 
@@ -161,6 +162,13 @@ msConnect(const char* host, int port, int useSsl)
         //From now, everything that is sent and read trough the socket
         //is encrypted (msReadString() and msSendString() will act differently)
         ret->usesSsl = 1; //This modifies the behavior of the read/write functions
+    }
+    else
+    {
+        //We simply send a basic EHLO, so both ssl and no-ssl connections
+        //are returned with an EHLO sent.
+        msSendString("EHLO",ret);
+        free(msReadString(ret));
     }
 
     return ret;
@@ -191,6 +199,7 @@ msCatch(int socket, struct sockaddr_in* addr)
 
     //Put everything to NULL
     cn->cmd_data = NULL;
+    cn->cmd_data_isComposing = 0;
     cn->cmd_ehlo = NULL;
     cn->cmd_mailfrom = NULL;
     cn->cmd_rcptto = NULL;
@@ -356,7 +365,7 @@ char*
 msReadString(mscn* cn)
 {
     //read socket data
-    printf("Reading server message...");
+    mslog("Reading server message...");
     fflush(stdout);
 
     char* buffer = malloc(1024);
@@ -369,28 +378,30 @@ msReadString(mscn* cn)
     }
         else
     {
-        nread = read(cn->socket, buffer, 1024);
+        nread = read(cn->socket, buffer, 1024 +1);
     }
 
     //read failed?
     if(nread == -1){
-        printf("Fail (read())\n");
+        mslog("Fail (read())\n");
         return NULL;
     }
 
-    //server aborted?
+    //client aborted?
     else if(nread == 0){
-        printf("Fail (connection closed)\n");
+        mslog("Fail (connection closed)\n");
         return NULL;
     }
 
-    //server wrote something?
+    //client wrote something?
     else{
-        if( buffer[nread-2] == '\r');
-            buffer[nread-2] = '\0';
-        if( buffer[nread-1] == '\n')
-            buffer[nread-1] = '\0';
-        printf("Ok (recieved [%s])\n",buffer);
+//        if( buffer[nread-2] == '\r');
+//            buffer[nread-2] = '\0';
+//        if( buffer[nread-1] == '\n')
+//            buffer[nread-1] = '\0';
+        //We must add a proper CRLF to the end of the buffer
+        buffer[nread] = '\0';
+        mslog("Ok, recieved [%s] [size %d]\n",buffer,nread);
     }
 
     return buffer;
@@ -472,13 +483,44 @@ msStartsWith(const char* str, const char* target)
     if(lenSource < lenTarget)
         return 0;
 
-    if(str[0] != target[0])
-        return 0;
-
     for(i=0; i<lenTarget; i++)
     {
         if(str[i] != target[i])
             return 0;
+    }
+
+    return 1;
+}
+
+//////////////////////////////////////////
+//msEndsWith
+//Returns 1 if target is found at the end
+//of str
+//////////////////////////////////////////
+
+int msEndsWith(const char* str, const char* target)
+{
+    if(NULL == str || NULL == target)
+        return 0;
+
+    int i, j, lenSource, lenTarget;
+
+    lenSource = strlen(str);
+    lenTarget = strlen(target);
+
+    if(lenSource < lenTarget)
+        return 0;
+
+    i=lenSource-1;
+    j=lenTarget-1;
+
+    while(j>=0)
+    {
+        //mslog("Comparing %c and %c\n",str[i],target[j]);
+        if(str[i] != target[j] && str[i])
+            return 0;
+        --i;
+        --j;
     }
 
     return 1;
@@ -517,6 +559,11 @@ msGetParameter(const char* str, const char* searchFor)
     //Skip space(s) between the command and the parameter
     while(str[i] == ' ' && i<lenStr)
         i++;
+
+    //If we are ath the end of the full string, it means
+    //there is no parameter
+    if(i >= lenStr)
+        return NULL;
 
     //Now we are at the start of the parameter string
     lenParameter = lenStr - i;

@@ -25,6 +25,12 @@
 #endif
 
 //////////////////////////////////////////
+//Max macro for select() function
+//////////////////////////////////////////
+
+#define max(x,y) ((x)>(y)?(x):(y))
+
+//////////////////////////////////////////
 //The MySmtp Connection structure
 //////////////////////////////////////////
 
@@ -46,6 +52,7 @@ typedef struct mscn_s
     char*               cmd_rcptto;
     char*               cmd_mailfrom;
     char*               cmd_data;
+    int                 cmd_data_isComposing;
 
 } mscn;
 
@@ -75,9 +82,7 @@ char*           msEncodeBase64(const char* str);
 char*           msReadString(mscn* cn);
 void            msPrintSSLError(SSL* sslConnection, int sslReturnCode);
 int             msStartsWith(const char* str, const char* searchFor);
+int             msEndsWith(const char* str, const char* searchFor);
 char*           msGetParameter(const char* str, const char* searchFor);
-
-
-
 
 
