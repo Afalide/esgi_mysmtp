@@ -57,20 +57,6 @@ typedef struct mscn_s
 } mscn;
 
 //////////////////////////////////////////
-//The clients structure
-//////////////////////////////////////////
-
-/*typedef struct msclient_s
-{
-    int         socket;
-
-    char*       cmd_ehlo;
-    char*       cmd_rcptto;
-    char*       cmd_mailfrom;
-    char*       cmd_data;
-} msclient;*/
-
-//////////////////////////////////////////
 //MySmtp functions
 //////////////////////////////////////////
 

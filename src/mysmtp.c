@@ -167,6 +167,10 @@ msConnect(const char* host, int port, int useSsl)
     {
         //We simply send a basic EHLO, so both ssl and no-ssl connections
         //are returned with an EHLO sent.
+
+        //Flush the server welcome message
+        free(msReadString(ret));
+        //Make an EHLO
         msSendString("EHLO",ret);
         free(msReadString(ret));
     }
