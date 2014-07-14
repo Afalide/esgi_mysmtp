@@ -460,7 +460,7 @@ msPrintSSLError(SSL* sslConnection, int sslReturnCode)
 void
 msStrReplace(char* strSource, char target, char replacement)
 {
-    int i;
+    unsigned int i;
     for(i=0; i<strlen(strSource); i++)
     {
         if(strSource[i] == target) strSource[i] = replacement;
